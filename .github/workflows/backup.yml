@@ -15,8 +15,8 @@ jobs:
   capture:
     # Exact boolean check: a missing repository payload must not become false.
     if: >-
-      github.repository == 'Finn84FIN/REPLACE_WITH_APPROVED_BACKUP_REPOSITORY' &&
-      github.repository_id == 'REPLACE_WITH_APPROVED_REPOSITORY_ID' &&
+      github.repository == 'Finn84FIN/movie-night-backups' &&
+      github.repository_id == '1440189400' &&
       github.ref == 'refs/heads/main' &&
       github.actor == 'Finn84FIN' &&
       toJSON(github.event.repository.private) == 'false' &&

@@ -9,8 +9,8 @@ permissions:
 jobs:
   synthetic:
     if: >-
-      github.repository == 'Finn84FIN/REPLACE_WITH_APPROVED_BACKUP_REPOSITORY' &&
-      github.repository_id == 'REPLACE_WITH_APPROVED_REPOSITORY_ID' &&
+      github.repository == 'Finn84FIN/movie-night-backups' &&
+      github.repository_id == '1440189400' &&
       toJSON(github.event.repository.private) == 'false'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
