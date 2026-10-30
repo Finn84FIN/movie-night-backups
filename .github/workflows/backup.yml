@@ -1,0 +1,72 @@
+name: Production backup (default off)
+on:
+  schedule:
+    - cron: '37 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-backup
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    # Exact boolean check: a missing repository payload must not become false.
+    if: >-
+      github.repository == 'Finn84FIN/REPLACE_WITH_APPROVED_BACKUP_REPOSITORY' &&
+      github.repository_id == 'REPLACE_WITH_APPROVED_REPOSITORY_ID' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'Finn84FIN' &&
+      toJSON(github.event.repository.private) == 'false' &&
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+      vars.BACKUP_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ vars.BACKUP_CODE_SHA }}
+          persist-credentials: false
+          sparse-checkout: scripts/backup
+      - name: Check the pinned revision before exposing credentials
+        env:
+          EXPECTED_SHA: ${{ vars.BACKUP_CODE_SHA }}
+        run: |
+          python3 - <<'PY'
+          import os, re, subprocess
+          expected = os.environ['EXPECTED_SHA']
+          if not re.fullmatch('[0-9a-f]{40}', expected):
+              raise SystemExit('backup: revision')
+          actual = subprocess.check_output(['git','rev-parse','HEAD'], text=True).strip()
+          if actual != expected:
+              raise SystemExit('backup: revision')
+          PY
+      - name: Install checksum-pinned tools
+        run: python3 scripts/backup/tools.py "$RUNNER_TEMP/backup-tools"
+      - name: Capture, verify and encrypt
+        env:
+          BACKUP_RUNNER: ubuntu-24.04
+          GITHUB_TOKEN: ${{ github.token }}
+          BACKUP_CODE_SHA: ${{ vars.BACKUP_CODE_SHA }}
+          BACKUP_POLICY_JSON: ${{ vars.BACKUP_POLICY_JSON }}
+          BACKUP_POLICY_SHA256: ${{ vars.BACKUP_POLICY_SHA256 }}
+          BACKUP_RECIPIENT: ${{ vars.BACKUP_RECIPIENT }}
+          BACKUP_DB_PASSWORD: ${{ secrets.BACKUP_DB_PASSWORD }}
+          BACKUP_STORAGE_KEY: ${{ secrets.BACKUP_STORAGE_KEY }}
+          BACKUP_DRIVE_TOKEN: ${{ secrets.BACKUP_DRIVE_TOKEN }}
+          BACKUP_DRIVE_CLIENT_ID: ${{ secrets.BACKUP_DRIVE_CLIENT_ID }}
+          BACKUP_DRIVE_CLIENT_SECRET: ${{ secrets.BACKUP_DRIVE_CLIENT_SECRET }}
+          BACKUP_HEALTHCHECK_URL: ${{ secrets.BACKUP_HEALTHCHECK_URL }}
+        run: |
+          export PATH="$RUNNER_TEMP/backup-tools:$PATH"
+          python3 scripts/backup/run.py
+      - name: Remove tool binaries
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, shutil
+          root = pathlib.Path(os.environ['RUNNER_TEMP']).resolve()
+          shutil.rmtree(root / 'backup-tools', ignore_errors=True)
+          PY

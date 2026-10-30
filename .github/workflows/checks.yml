@@ -1,0 +1,27 @@
+name: Synthetic backup checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  synthetic:
+    if: >-
+      github.repository == 'Finn84FIN/REPLACE_WITH_APPROVED_BACKUP_REPOSITORY' &&
+      github.repository_id == 'REPLACE_WITH_APPROVED_REPOSITORY_ID' &&
+      toJSON(github.event.repository.private) == 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install digest-pinned test tools
+        run: python3 scripts/backup/tools.py "$RUNNER_TEMP/backup-test-tools"
+      - name: Test only synthetic data in isolated services
+        run: |
+          export PATH="$RUNNER_TEMP/backup-test-tools:$PATH"
+          python3 scripts/backup/test_backup.py
+          python3 scripts/backup/test_postgres.py
