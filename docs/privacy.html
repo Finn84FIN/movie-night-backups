@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy — Movie Night backups</title>
+<style>body{max-width:46rem;margin:3rem auto;padding:0 1.25rem;font:1rem/1.65 system-ui,sans-serif;color:#20242c}h1{line-height:1.2}a{color:#8a2043}footer{margin-top:2rem;border-top:1px solid #ddd;padding-top:1rem}</style>
+</head>
+<body>
+<main>
+<h1>Privacy and data handling</h1>
+<p>Movie Night backups is the project owner's personal backup tool. This page describes its intended approved operation; it is not a claim that recurring backups are currently activated.</p>
+<h2>Access and purpose</h2>
+<p>The dedicated Google OAuth client requests only <code>drive.file</code>. It uses that access to create and inspect the private backup folder and to upload, list and download encrypted backup generations for verification and recovery. Google Drive access is not used for advertising, profiling, sale of data or unrelated purposes.</p>
+<h2>Storage and service providers</h2>
+<p>Backup contents are encrypted with age before upload to Google Drive. The recovery identity is kept privately by the owner outside GitHub, Google Drive and the backup job; the routine job has only the public encryption recipient. Authorized recovery uses the owner's private recovery identity.</p>
+<p>The reviewed workflow runs in the public Movie Night backup-tools repository on GitHub Actions. Its provider credentials are stored in GitHub Actions secrets, not in published source. Public output is limited to sanitized operational status and aggregate verification information. SQL dumps, personal records, object paths and credentials must not appear in public logs or artifacts.</p>
+<p>Healthchecks.io receives limited job-status signals and sends alerts to the owner's configured email address. It does not receive the backup contents or the private recovery identity.</p>
+<h2>Retention and control</h2>
+<p>Backup generations remain in the owner's private Drive storage until the owner removes them or separately approves a retention procedure. The owner can revoke the client through their Google Account connections settings and can remove backup files in Google Drive. Revocation stops future access; it does not itself delete existing backups. No public file sharing is required.</p>
+<h2>This information site</h2>
+<p>This static GitHub Pages site contains no login form, analytics script or tracking code. GitHub provides the hosting infrastructure and may process request information under its own privacy statement.</p>
+<p><a href="index.html">About Movie Night backups</a></p>
+</main>
+<footer>Contact: <a href="mailto:planmovienight@gmail.com">planmovienight@gmail.com</a></footer>
+</body>
+</html>
