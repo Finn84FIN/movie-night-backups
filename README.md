@@ -205,6 +205,16 @@ python3 scripts/backup/test_backup.py
 python3 scripts/backup/test_postgres.py
 ```
 
+The integration entry point first checks the local Linux Docker engine and pulls
+both digest-pinned images explicitly before starting disconnected services.
+Acquisition failures are distinguished from startup failures; a local pass with
+cached layers is still not fresh hosted Linux evidence. Bootstrap failures report
+only the stage, an allowlisted error category and exit status, never raw tool output. This
+diagnostic path exists only in the fixture test; production error redaction and
+the disconnected restore-service network remain unchanged. A failed hosted run
+still requires investigation: the category is evidence, not an automatic retry,
+permission change, image substitution or recovery pass.
+
 The test-only bindings exist in memory; target files remain unconfigured. The
 integration creates a small synthetic database from `fixture.sql`, verifies a
 non-superuser capture, exact roles/settings/memberships and grants/RLS, bcrypt,

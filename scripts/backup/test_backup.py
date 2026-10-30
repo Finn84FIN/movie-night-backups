@@ -2,6 +2,7 @@ import hashlib
 import io
 import json
 import os
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -14,6 +15,7 @@ from backup import Failure, digest, policy_guard, run_backup, verify_bundle
 from postgres import command, normalized_schema
 from run import Hosted, main, approved_policy
 from recover import drill, unpack
+from test_postgres import bootstrap, prepare_test_images
 import target
 
 DATA = b'synthetic picture bytes'
@@ -118,6 +120,75 @@ class BackupTests(unittest.TestCase):
         self.assertEqual(a,normalized_schema(dump(b'def',b'17.11',body)))
         self.assertIn(b'\r\n',a)
         self.assertNotEqual(a,normalized_schema(dump(b'def',b'17.11',body.replace(b'--meaningful',b'--changed'))))
+    def test_synthetic_bootstrap_classifies_without_exposing_tool_output(self):
+        for message,category in (
+            ('Cannot connect to the Docker daemon','daemon-unavailable'),
+            ('operation not permitted','permission-denied'),
+            ('toomanyrequests','registry-rate-limit'),
+            ('manifest unknown','image-unavailable'),
+            ('pull access denied','registry-access'),
+            ('TLS handshake timeout','network'),
+            ('unrecognized failure','unknown'),
+        ):
+            private='PRIVATE password SQL object-path provider-url'
+            failure=subprocess.CalledProcessError(125,['docker','PRIVATE'],stderr=(message+' '+private).encode())
+            with self.subTest(category=category),patch('postgres.subprocess.run',side_effect=failure):
+                with self.assertRaisesRegex(Failure,f'^synthetic-bootstrap:postgres-start:{category}:exit-125$') as caught:
+                    bootstrap(lambda:command(['docker','run']), 'postgres-start')
+                self.assertNotIn(private,str(caught.exception))
+                # The production wrapper's error surface is unchanged.
+                with self.assertRaisesRegex(Failure,'^tool_failed$'):command(['docker','run'])
+        for failure,category in ((subprocess.TimeoutExpired(['docker'],300),'timeout'),
+                                 (FileNotFoundError('PRIVATE-client-path'),'client-unavailable')):
+            with patch('postgres.subprocess.run',side_effect=failure), \
+                 self.assertRaisesRegex(Failure,f'^synthetic-bootstrap:daemon:{category}:failed$'):
+                bootstrap(lambda:command(['docker','info']), 'daemon')
+    def test_cold_recovery_preflight_uses_only_local_engine_and_fixed_images(self):
+        from postgres import IMAGE, STORAGE_IMAGE
+        calls=[]
+        def run(args,**kwargs):
+            calls.append(args)
+            self.assertFalse(any(k.startswith(('BACKUP_','RCLONE_')) for k in kwargs['env']))
+            output=b'linux\n' if args[1]=='info' else b''
+            return subprocess.CompletedProcess(args,0,stdout=output,stderr=b'')
+        with patch('test_postgres.local_docker') as local,patch('postgres.subprocess.run',side_effect=run):
+            prepare_test_images()
+            local.assert_called_once_with()
+        self.assertEqual(calls,[['docker','info','--format','{{.OSType}}'],
+                               ['docker','pull','--quiet',IMAGE],['docker','pull','--quiet',STORAGE_IMAGE]])
+        with patch('test_postgres.local_docker'),patch('postgres.subprocess.run',
+                return_value=subprocess.CompletedProcess([],0,stdout=b'windows\n')) as process, \
+             self.assertRaisesRegex(Failure,'^synthetic-bootstrap:daemon:linux-required:failed$'):
+            prepare_test_images()
+        self.assertEqual(process.call_count,1)
+        def unavailable(args,**kwargs):
+            if args[1]=='pull':raise subprocess.CalledProcessError(125,args,stderr=b'manifest unknown PRIVATE')
+            return subprocess.CompletedProcess(args,0,stdout=b'linux\n')
+        with patch('test_postgres.local_docker'),patch('postgres.subprocess.run',side_effect=unavailable) as process, \
+             self.assertRaisesRegex(Failure,'^synthetic-bootstrap:postgres-pull:image-unavailable:exit-125$'):
+            prepare_test_images()
+        self.assertEqual(process.call_count,2)
+    def test_known_readiness_and_cleanup_failures_keep_safe_classifications(self):
+        for code,category in (('restore_bootstrap','database-not-ready'),
+                              ('container_cleanup','cleanup-incomplete')):
+            for with_context in (False,True):
+                def fail():
+                    if with_context:
+                        try:
+                            raise subprocess.CalledProcessError(125,['PRIVATE'],stderr=b'permission denied PRIVATE')
+                        except subprocess.CalledProcessError:
+                            raise Failure(code) from None
+                    raise Failure(code)
+                with self.subTest(code=code,with_context=with_context), \
+                     self.assertRaisesRegex(Failure,f'^synthetic-bootstrap:postgres-start:{category}:failed$'):
+                    bootstrap(fail,'postgres-start')
+        for private in ('PRIVATE password SQL object-path',
+                        'restore_bootstrap PRIVATE','container_cleanup PRIVATE'):
+            def fail():raise Failure(private)
+            with self.subTest(private=private), \
+                 self.assertRaisesRegex(Failure,'^synthetic-bootstrap:postgres-start:unknown:failed$') as caught:
+                bootstrap(fail,'postgres-start')
+            self.assertNotIn(private,str(caught.exception))
     def test_encrypted_capture_and_offline_verification(self):
         with tempfile.TemporaryDirectory() as tmp:
             fixture = Fixture(tmp,self.recipient)

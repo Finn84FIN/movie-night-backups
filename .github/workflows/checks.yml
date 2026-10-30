@@ -24,4 +24,6 @@ jobs:
         run: |
           export PATH="$RUNNER_TEMP/backup-test-tools:$PATH"
           python3 scripts/backup/test_backup.py
+          # This entry point verifies the local Linux engine and explicitly
+          # acquires both pinned images before disconnected recovery services.
           python3 scripts/backup/test_postgres.py

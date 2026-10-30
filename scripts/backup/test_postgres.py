@@ -8,15 +8,62 @@ from backup import capture_attempt, Failure, digest
 from run import Hosted
 from recover import drill
 import json
-from postgres import Database, PostgresCapture, prerequisites, start_sandbox, stop_sandbox, command, ROLE_SQL, MEMBERS_SQL
+import subprocess
+import sys
+from postgres import Database, PostgresCapture, prerequisites, start_sandbox, stop_sandbox, command, local_docker, IMAGE, STORAGE_IMAGE, ROLE_SQL, MEMBERS_SQL
 from unittest.mock import patch
 
 SYNTHETIC_PROJECT = 'abcdefghijklmnopqrst'
 
 
+def bootstrap(action, stage):
+    """Synthetic-only diagnostics: never print tool stderr, args or environment."""
+    try:
+        return action()
+    except Failure as error:
+        known = {'restore_bootstrap': 'database-not-ready',
+                 'container_cleanup': 'cleanup-incomplete'}.get(str(error))
+        if known:
+            raise Failure(f'synthetic-bootstrap:{stage}:{known}:failed') from None
+        # command() suppresses traceback chaining, but retains the exception as
+        # __context__. Classify it without exposing arbitrary Docker output.
+        cause = error.__context__
+        status = 'failed'
+        category = 'unknown'
+        if isinstance(cause, subprocess.CalledProcessError):
+            status = 'exit-' + str(cause.returncode)
+            message = (cause.stderr or b'').decode(errors='replace').lower()
+            for label, patterns in (
+                ('daemon-unavailable', ('cannot connect to the docker daemon', 'is the docker daemon running')),
+                ('permission-denied', ('permission denied', 'operation not permitted')),
+                ('registry-rate-limit', ('toomanyrequests', 'too many requests', 'rate limit')),
+                ('image-unavailable', ('manifest unknown', 'no matching manifest', 'not found')),
+                ('registry-access', ('unauthorized', 'authentication required', 'pull access denied')),
+                ('network', ('tls handshake', 'connection refused', 'connection reset', 'i/o timeout')),
+            ):
+                if any(pattern in message for pattern in patterns):
+                    category = label
+                    break
+        elif isinstance(cause, subprocess.TimeoutExpired):
+            category = 'timeout'
+        elif isinstance(cause, OSError):
+            category = 'client-unavailable'
+        raise Failure(f'synthetic-bootstrap:{stage}:{category}:{status}') from None
+
+
+def prepare_test_images():
+    """Exercise cold image acquisition separately from disconnected DB startup."""
+    bootstrap(local_docker, 'local-engine')
+    engine = bootstrap(lambda: command(['docker', 'info', '--format', '{{.OSType}}']), 'daemon')
+    if engine.strip() != b'linux':
+        raise Failure('synthetic-bootstrap:daemon:linux-required:failed')
+    for stage, image in (('postgres-pull', IMAGE), ('storage-pull', STORAGE_IMAGE)):
+        bootstrap(lambda: command(['docker', 'pull', '--quiet', image]), stage)
+
+
 class RecoveryTest(unittest.TestCase):
     def test_real_snapshot(self):
-        source = start_sandbox()
+        source = bootstrap(start_sandbox, 'postgres-start')
         io = None
         try:
             source.sql(Path(__file__).with_name('fixture.sql').read_text())
@@ -102,4 +149,9 @@ class RecoveryTest(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    try:
+        prepare_test_images()
+    except Failure as error:
+        print(str(error), file=sys.stderr)
+        sys.exit(1)
     unittest.main()
