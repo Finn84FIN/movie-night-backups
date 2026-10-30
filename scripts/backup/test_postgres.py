@@ -10,6 +10,7 @@ from recover import drill
 import json
 import subprocess
 import sys
+import postgres
 from postgres import Database, PostgresCapture, prerequisites, start_sandbox, stop_sandbox, command, local_docker, IMAGE, STORAGE_IMAGE, ROLE_SQL, MEMBERS_SQL
 from unittest.mock import patch
 
@@ -62,6 +63,29 @@ def prepare_test_images():
 
 
 class RecoveryTest(unittest.TestCase):
+    def test_initialization_finishes_before_fixture_load(self):
+        source = None
+        original = postgres.command
+        with tempfile.TemporaryDirectory(prefix='mn-init-readiness-') as tmp:
+            init = Path(tmp) / 'zzzz_readiness.sql'
+            init.write_text("DROP SCHEMA IF EXISTS auth CASCADE;\nSELECT pg_sleep(8);\n"
+                            "CREATE SCHEMA auth;\nCREATE TABLE public.init_complete (ready boolean);\n")
+            init.chmod(0o644)
+            def delayed(args, data=None, env=None):
+                if args[:2] == ['docker', 'run'] and IMAGE in args:
+                    args = list(args)
+                    index = args.index(IMAGE)
+                    args[index:index] = ['--mount', 'type=bind,source=' + str(init) +
+                                         ',target=/docker-entrypoint-initdb.d/zzzz_readiness.sql,readonly']
+                return original(args, data, env)
+            try:
+                with patch('postgres.command', delayed):
+                    source = bootstrap(start_sandbox, 'postgres-start')
+                    self.assertEqual(source.sql("select to_regclass('public.init_complete') is not null;"), 't')
+                    source.sql(Path(__file__).with_name('fixture.sql').read_text())
+            finally:
+                stop_sandbox(source)
+
     def test_real_snapshot(self):
         source = bootstrap(start_sandbox, 'postgres-start')
         io = None

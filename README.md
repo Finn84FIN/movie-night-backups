@@ -215,6 +215,12 @@ the disconnected restore-service network remain unchanged. A failed hosted run
 still requires investigation: the category is evidence, not an automatic retry,
 permission change, image substitution or recovery pass.
 
+Restore readiness requires the final container-local TCP listener and then a SQL
+query. Socket queries alone can succeed on PostgreSQL's temporary initialization
+server before its setup scripts finish. A delayed-init fixture regression checks
+that setup is complete before fixture SQL runs. Restore services still use no
+external network, and readiness waits remain bounded with cleanup on timeout.
+
 The test-only bindings exist in memory; target files remain unconfigured. The
 integration creates a small synthetic database from `fixture.sql`, verifies a
 non-superuser capture, exact roles/settings/memberships and grants/RLS, bcrypt,

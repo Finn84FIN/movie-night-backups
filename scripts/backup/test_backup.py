@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 from contextlib import redirect_stdout, redirect_stderr
 from backup import Failure, digest, policy_guard, run_backup, verify_bundle
-from postgres import command, normalized_schema
+from postgres import command, normalized_schema, start_sandbox
 from run import Hosted, main, approved_policy
 from recover import drill, unpack
 from test_postgres import bootstrap, prepare_test_images
@@ -189,6 +189,26 @@ class BackupTests(unittest.TestCase):
                  self.assertRaisesRegex(Failure,'^synthetic-bootstrap:postgres-start:unknown:failed$') as caught:
                 bootstrap(fail,'postgres-start')
             self.assertNotIn(private,str(caught.exception))
+    def test_restore_readiness_waits_for_final_listener_and_cleans_timeout(self):
+        with patch('postgres.local_docker'),patch('postgres.command',return_value=b'synthetic'), \
+             patch('postgres.Database') as database,patch('postgres.time.sleep') as sleep, \
+             patch('postgres.remove_container') as cleanup:
+            db=database.return_value
+            db.run.side_effect=[Failure('tool_failed'),b'accepting connections']
+            db.sql.return_value='1'
+            self.assertIs(start_sandbox(),db)
+            expected=('pg_isready',['-h','127.0.0.1','-p','5432','-t','1'])
+            self.assertEqual([call.args for call in db.run.call_args_list],[expected,expected])
+            db.sql.assert_called_once_with('select 1;')
+            sleep.assert_called_once_with(1)
+            cleanup.assert_not_called()
+            db.run.reset_mock();db.sql.reset_mock();sleep.reset_mock()
+            db.run.side_effect=Failure('tool_failed')
+            with self.assertRaisesRegex(Failure,'^restore_bootstrap$'):start_sandbox()
+            self.assertEqual(db.run.call_count,60)
+            db.sql.assert_not_called()
+            cleanup.assert_called_once()
+            self.assertTrue(cleanup.call_args.args[0].startswith('mn-backup-restore-'))
     def test_encrypted_capture_and_offline_verification(self):
         with tempfile.TemporaryDirectory() as tmp:
             fixture = Fixture(tmp,self.recipient)
@@ -305,7 +325,7 @@ class BackupTests(unittest.TestCase):
                 approved_policy(raw,expected)
         changed=self.policy();changed['drive_folder']='another-folder'
         with self.assertRaisesRegex(Failure,'setup_review'): approved_policy(json.dumps(changed),checksum)
-        with patch('backup.REPOSITORY','Finn84FIN/REPLACE_WITH_APPROVED_BACKUP_REPOSITORY'):
+        with patch('backup.REPOSITORY','Finn84FIN/movie-night-backups'):
             with self.assertRaisesRegex(Failure,'unconfigured'):policy_guard(self.policy(),self.context(),self.recipient)
         with patch('backup.REPOSITORY','Finn84FIN/movie-night'):
             with self.assertRaisesRegex(Failure,'unconfigured'):policy_guard(self.policy(),self.context(),self.recipient)
@@ -324,7 +344,7 @@ class BackupTests(unittest.TestCase):
                      patch('run.signal_healthcheck'),redirect_stderr(io.StringIO()):
                     self.assertEqual(main(),1)
                     tool.assert_not_called();hosted.assert_not_called()
-            with patch.dict(os.environ,env),patch('run.REPOSITORY','Finn84FIN/REPLACE_WITH_APPROVED_BACKUP_REPOSITORY'), \
+            with patch.dict(os.environ,env),patch('run.REPOSITORY','Finn84FIN/movie-night-backups'), \
                  patch('run.github_read') as api,patch('run.signal_healthcheck'),redirect_stderr(io.StringIO()):
                 self.assertEqual(main(),1);api.assert_not_called()
     def test_storage_info_fingerprint_and_version(self):

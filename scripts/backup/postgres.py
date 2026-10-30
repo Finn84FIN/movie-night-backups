@@ -137,6 +137,9 @@ def start_sandbox():
         db = Database(name)
         for _ in range(60):
             try:
+                # Init scripts run against a socket-only temporary server.
+                # Require the final listener before querying fixture/restore SQL.
+                db.run('pg_isready', ['-h', '127.0.0.1', '-p', '5432', '-t', '1'])
                 db.sql("select 1;")
                 return db
             except Failure:
