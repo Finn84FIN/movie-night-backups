@@ -325,7 +325,7 @@ class BackupTests(unittest.TestCase):
                 approved_policy(raw,expected)
         changed=self.policy();changed['drive_folder']='another-folder'
         with self.assertRaisesRegex(Failure,'setup_review'): approved_policy(json.dumps(changed),checksum)
-        with patch('backup.REPOSITORY','Finn84FIN/movie-night-backups'):
+        with patch('backup.REPOSITORY','Finn84FIN/REPLACE_WITH_APPROVED_BACKUP_REPOSITORY'):
             with self.assertRaisesRegex(Failure,'unconfigured'):policy_guard(self.policy(),self.context(),self.recipient)
         with patch('backup.REPOSITORY','Finn84FIN/movie-night'):
             with self.assertRaisesRegex(Failure,'unconfigured'):policy_guard(self.policy(),self.context(),self.recipient)
@@ -344,7 +344,7 @@ class BackupTests(unittest.TestCase):
                      patch('run.signal_healthcheck'),redirect_stderr(io.StringIO()):
                     self.assertEqual(main(),1)
                     tool.assert_not_called();hosted.assert_not_called()
-            with patch.dict(os.environ,env),patch('run.REPOSITORY','Finn84FIN/movie-night-backups'), \
+            with patch.dict(os.environ,env),patch('run.REPOSITORY','Finn84FIN/REPLACE_WITH_APPROVED_BACKUP_REPOSITORY'), \
                  patch('run.github_read') as api,patch('run.signal_healthcheck'),redirect_stderr(io.StringIO()):
                 self.assertEqual(main(),1);api.assert_not_called()
     def test_storage_info_fingerprint_and_version(self):
